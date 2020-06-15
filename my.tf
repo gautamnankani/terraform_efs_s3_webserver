@@ -14,15 +14,19 @@ resource "aws_s3_bucket" "my_bucket" {
   }
 }
 
-/*
+// adding image to s3 bucket
+// change image path to the path of image in your system 
 resource "aws_s3_bucket_object" "my_bucket_object" {
-  key    = "image1.jpg"
+  key    = "image.png"
   acl    = "private"
   bucket =  aws_s3_bucket.my_bucket.id
-  source = "‪C:/Users/gauta/Pictures/a.jpg"
-  content_type = "image/jpg"
+  source =  "C:/Users/gauta/Pictures/a.jpg"
+  content_type = "image or jpeg"
+  depends_on = [
+     aws_s3_bucket.my_bucket
+  ]
 }
-*/
+
 
 resource "aws_cloudfront_origin_access_identity" "origin_access_identity" {
   comment = "creation of origin access identity"
@@ -86,7 +90,10 @@ resource "aws_cloudfront_distribution" "s3_distribution" {
 
   viewer_certificate {
     cloudfront_default_certificate   =  true
-  }   
+  }  
+  depends_on = [
+     aws_s3_bucket.my_bucket
+  ]
 }
 
 
@@ -129,16 +136,24 @@ variable "image_id" {
   default  =  "ami-0447a12f28fddb066"
 }
 
+
+//key creation
+resource "aws_key_pair" "deployer" {
+  key_name   = "deploy_key"
+  public_key = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCgvRL0cQ9bBfZdUtW6el8tVXwWluVhVHjEGSFUZtD/8s7gnB2f1joeNmYQSmpoRylp2/Oyx8ooLOXEv4HcnwSYx3bmopHPNLI9OTSDoKzWTi9tZ8NnWqX4DzlFIrxtAY3I1kqDbTsiL4oftcv0CLGR6x/b+S/sru5Prjj/va6+hA/0U9DaIn5ZLlspX9XjpGKmeKt06p4DnFQ0ZU55s1hjuHAxqUBmDpVNhpxczdWkLSNHh/KYg3kCS1nHpB/+ov5P8FKUlcqHzAlZ3sS882mqtaByWXzUJfiqMVBpUNPJmGaL/TkqitE9EYpnx+KqvjFT7n8aKD87B9zNC0e4SnSt root@localhost.localdomain"
+}
+
 // instace creation using above image id
 resource "aws_instance" "myin" {
   ami           = var.image_id
   instance_type = "t2.micro"
   security_groups = [ aws_security_group.my_sec.name ]
-  key_name = "mykey1111"
+  key_name = "deploy_key"
   tags = {
     Name = "os2"
   }
   depends_on = [
+    aws_key_pair.deployer,
     aws_security_group.my_sec,
   ]
 }
@@ -169,7 +184,7 @@ resource "null_resource" "examle1"{
   connection {
     type     = "ssh"
     user     = "ec2-user"
-    private_key = file("C:/Users/gauta/Desktop/cloud/mykey1111.pem")
+    private_key = file("deploy_key.pem")
     host     = aws_instance.myin.public_ip
   }
   provisioner "remote-exec"{
