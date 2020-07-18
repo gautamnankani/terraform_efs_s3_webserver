@@ -97,7 +97,7 @@ resource "aws_cloudfront_distribution" "s3_distribution" {
 }
 
 
-/////////////////////////////////////////////////////////////////// EC2_INSTANCE AND EBS 
+/////////////////////////////////////////////////////////////////// EC2_INSTANCE AND EFS
 
 // security group creation
 resource "aws_security_group" "my_sec" {
@@ -118,6 +118,13 @@ resource "aws_security_group" "my_sec" {
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
+  ingress {
+	  description = "NFS"
+	  from_port   = 2049
+	  to_port     = 2049
+	  protocol    = "tcp"
+	  cidr_blocks = ["0.0.0.0/0"]
+	}
   egress {
     from_port   = 0
     to_port     = 0
@@ -148,7 +155,7 @@ resource "aws_instance" "myin" {
   ami           = var.image_id
   instance_type = "t2.micro"
   security_groups = [ aws_security_group.my_sec.name ]
-  key_name = "deploy_key"
+  key_name =  "mykey"
   tags = {
     Name = "os2"
   }
@@ -158,47 +165,47 @@ resource "aws_instance" "myin" {
   ]
 }
 
-// ebs volume creation 
-resource "aws_ebs_volume" "myvol" {
-  availability_zone = aws_instance.myin.availability_zone
-  size              = 2
+//Editing begins
+/////////////////////////////////
+// efs volume creation 
+resource "aws_efs_file_system" "myvol" {
+  creation_token = "my-efs"
   tags = {
     Name = "new_vol"
   }
 }
 
-// attaching above ebs volume and instance
-resource "aws_volume_attachment" "ebs_att" {
-  device_name = "/dev/sdc"
-  volume_id   = aws_ebs_volume.myvol.id
-  instance_id = aws_instance.myin.id
-  force_detach = true
-  depends_on = [
-    aws_instance.myin,
-    aws_ebs_volume.myvol,
-  ]
+//  availability_zone = aws_instance.myin.availability_zone
+
+
+// attaching above efs volume and instance
+resource "aws_efs_mount_target" "efs_att" {
+  file_system_id = aws_efs_file_system.myvol.id
+  subnet_id      = aws_instance.myin.subnet_id
+  security_groups = [ aws_security_group.my_sec.id ]
 }
+
 
 
 resource "null_resource" "examle1"{
   connection {
     type     = "ssh"
     user     = "ec2-user"
-    private_key = file("deploy_key.pem")
+    private_key = file("mykey.pem")
     host     = aws_instance.myin.public_ip
   }
   provisioner "remote-exec"{
     inline = [
-        "sudo yum install httpd php git -y",
+        "sudo yum install amazon-efs-utils nfs-utils httpd php git -y",
         "sudo systemctl restart httpd",
         "sudo systemctl enable httpd",
-        "sudo mkfs.ext4 /dev/xvdc",
-        "sudo mount /dev/xvdc /var/www/html",
+        "sudo mount -t efs ${aws_efs_file_system.myvol.id}:/ /var/www/html",
+        "sudo echo '${aws_efs_file_system.myvol.id}:/ /var/www/html efs defaults,_netdev 0 0' >> /etc/fstab",
         "sudo rm -rf /var/www/html/*",
         "sudo git clone https://github.com/vimallinuxworld13/multicloud.git /var/www/html/",
     ]  
   }
   depends_on = [
-     aws_volume_attachment.ebs_att
+     aws_efs_mount_target.efs_att
   ]
 }
